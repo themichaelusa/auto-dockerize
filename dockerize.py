@@ -34,7 +34,7 @@ class AutoDockerize:
 		self.local_modules = None
 		self.__set_fpaths_localmods()
 
-	### SETUP && PRIVATE METHODS ###
+	### SETUP ###
 	
 	""" Get all filepaths of target dir + set of all names of local modules """ 
 	def __set_fpaths_localmods(self):
@@ -47,6 +47,8 @@ class AutoDockerize:
 			local.append(mod.split('.')[0])
 		self.local_modules = set(local)
 
+	###  PRIVATE METHODS ###
+	
 	""" Extract all names of non-local imports """ 
 	def __get_all_imports(self):
 		all_imports = []
@@ -82,11 +84,10 @@ class AutoDockerize:
 		return latest_releases
 
 	### find target script/function 
-
 	def find_target(self):
 		pass
 
-	### Create Dockerfile.txt ###
+	### Create & populate Dockerfile.txt ###
 	def __init_dockerfile(self, import_releases, run_path):
 		# create dockerfile, write releases, other stuff
 		dockerfile = 'Dockerfile.txt'
@@ -108,7 +109,6 @@ class AutoDockerize:
 		subprocess.run(['mkdir', dir_name])
 		subprocess.run(['mv', dockerfile, dir_name])
 
-
 	### PUBLIC METHODS ###
 
 	### Create Image 
@@ -123,10 +123,9 @@ class AutoDockerize:
 python3 dockerize.py test0 /Users/michaelusa/Documents/Development/Trinitum py36 
 """
 if __name__ == '__main__':
-	#print(*sys.argv[1:4])
 	auto_dockerize = AutoDockerize(*sys.argv[1:4])
-		
 	action = sys.argv[-1]
+
 	"""
 	if action == 'target':
 		pass
