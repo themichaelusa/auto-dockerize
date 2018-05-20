@@ -88,25 +88,26 @@ class AutoDockerize:
 
 	### Create Dockerfile.txt ###
 	def __init_dockerfile(self, import_releases, run_path):
-		# create new subfolder in pwd 
-		dir_name = self.project_name + '_auto_drized'
-		subprocess.run(['mkdir', dir_name])
-		pwd = subprocess.check_output(['pwd']).decode("utf-8")
-		dfile_dir = pwd + '/Dockerfile.txt'
-
 		# create dockerfile, write releases, other stuff
-		with open(dfile_dir, 'a+') as dfile:
-			curr_version = version_to_num[self.version] + '\n'
+		dockerfile = 'Dockerfile.txt'
+		with open(dockerfile, 'a+') as dfile:
+			curr_version = str(self.version) + '\n'
 			dfile.write('FROM python:{}'.format(curr_version))
 
-			# add file 
-			dfile.write('ADD {} /'.format(run_path))
+			# add file that the image executes when it builds
+			dfile.write('ADD {} /\n'.format(run_path))
 
 			#TODO, add require version for pip install
 			for imp in import_releases:
-				dfile.write('RUN pip install {}'.format(imp[0]))
+				dfile.write('RUN pip install {}\n'.format(imp[0]))
+			dfile.write('CMD [ "python3", "./{}" ]'.format(run_path))
 
-			dfile.write('CMD [ python3, ./{} ]'.format(run_path))
+		dir_name = self.project_name + '_auto_drized'
+		pwd = subprocess.check_output(['pwd']).decode("utf-8")
+		dfile_dir = pwd + '/{}'.format(dir_name)
+		subprocess.run(['mkdir', dir_name])
+		subprocess.run(['mv', dockerfile, dir_name])
+
 
 	### PUBLIC METHODS ###
 
@@ -122,8 +123,8 @@ class AutoDockerize:
 python3 dockerize.py test0 /Users/michaelusa/Documents/Development/Trinitum py36 
 """
 if __name__ == '__main__':
-	print(*sys.argv[1:-1])
-	auto_dockerize = AutoDockerize(*sys.argv[1:-1])
+	#print(*sys.argv[1:4])
+	auto_dockerize = AutoDockerize(*sys.argv[1:4])
 		
 	action = sys.argv[-1]
 	"""
