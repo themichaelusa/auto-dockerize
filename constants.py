@@ -15,3 +15,5 @@ py_version_to_metadata = {
 	'py32': (ext_py, 3.2, stdlib_set_py32), 
 	'py27': (ext_py, 2.7, stdlib_set_py27)
 }
+
+mac_os_docker_init = [['docker-machine', 'start', 'default'], ['docker-machine', 'regenerate-certs', 'default'], ['eval', '$(docker-machine env default)']]

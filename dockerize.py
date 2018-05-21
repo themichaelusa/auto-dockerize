@@ -3,6 +3,7 @@
 
 import sys 
 import glob
+from distutils.dir_util import copy_tree
 
 import subprocess 
 from multiprocessing.dummy import Pool
@@ -20,9 +21,9 @@ import json
 ### MAIN ###
 
 class AutoDockerize:
-	def __init__(self, proj_name, targ_dir, lang_version):
+	def __init__(self, proj_name, targ_dir, lang_version, run_mod):
 		self.project_name = proj_name
-		self.dir = targ_dir
+		self.dir_name = targ_dir.split('/')[-1]
 
 		metadata = py_version_to_metadata[lang_version]
 		extension, version, version_stdlib = metadata
@@ -31,24 +32,61 @@ class AutoDockerize:
 		self.version_stdlib = version_stdlib
 
 		self.filepaths = None
+		self.local_paths = []
 		self.local_modules = None
-		self.__set_fpaths_localmods()
+		self.run_path = None
+		self.container_dir = None
+
+		self.__setup_container_dir(targ_dir)
+		self.__set_fpaths_localmods(run_mod)
+
+		self.imports_and_releases = None
+
+	def view_member_vars(self): # for testing purposes 
+		print(self.__dict__)
 
 	### SETUP ###
-	
-	""" Get all filepaths of target dir + set of all names of local modules """ 
-	def __set_fpaths_localmods(self):
-		ext = self.dir + '/**/*.{}'.format(self.extension)
+
+	def __setup_container_dir(self, targ_dir):
+		# create container directory & copy target directory
+		self.container_dir = self.project_name + '_autodrized'
+		subprocess.run(['mkdir', self.container_dir])
+
+		source = '{}/'.format(targ_dir)
+		dest = self.container_dir + '/' + self.dir_name
+		subprocess.run(['mkdir', dest])
+		copy_tree(source, dest)
+
+		#make Dockerfile binary
+		dockerfile = 'Dockerfile'
+		subprocess.run(['touch', dockerfile])
+		subprocess.run(['mv', dockerfile, self.container_dir])
+
+	""" Get all filepaths of target dir + set of all names of local modules.
+	Also, get the path of the module that we want to run in our Dockerfile
+	""" 
+	def __set_fpaths_localmods(self, run_mod_name):
+		container_path = self.container_dir + '/' + self.dir_name
+		ext = container_path + '/**/*.{}'.format(self.extension)
 		self.filepaths = glob.glob(ext, recursive=True)
 
-		local = []
 		for path in self.filepaths:
+			path_local = '/'.join(path.split('/')[1:])
+			self.local_paths.append(path_local)
+
+		local_modules = []
+		for path in self.local_paths:
 			mod = path.split('/')[-1]
-			local.append(mod.split('.')[0])
-		self.local_modules = set(local)
+			module_name = mod.split('.')[0]
+			local_modules.append(module_name)
+
+			if module_name == run_mod_name:
+				self.run_path = path
+
+		self.local_modules = set(local_modules)
 
 	###  PRIVATE METHODS ###
-	
+
 	""" Extract all names of non-local imports """ 
 	def __get_all_imports(self):
 		all_imports = []
@@ -65,7 +103,7 @@ class AutoDockerize:
 		return list(all_imports - self.version_stdlib - self.local_modules)
 
 	""" Get version #'s for all non-local imports """
-	def __get_versions_imports(self, all_imports):
+	def __set_versions_imports(self, all_imports):
 		def get_wrapper(import_name):
 			url = 'https://pypi.python.org/pypi/{}/json'.format(import_name)
 			return (import_name, requests.get(url).json())
@@ -81,56 +119,45 @@ class AutoDockerize:
 			latest_release = list(info_dict['releases'].keys())[-1]
 			latest_releases.append((import_name, latest_release))
 
-		return latest_releases
+		self.imports_and_releases = latest_releases
 
-	### find target script/function 
-	def find_target(self):
-		pass
-
-	### Create & populate Dockerfile.txt ###
-	def __init_dockerfile(self, import_releases, run_path):
-		# create dockerfile, write releases, other stuff
-		dockerfile = 'Dockerfile.txt'
-		with open(dockerfile, 'a+') as dfile:
+	### populate Dockerfile.txt ###
+	def __init_dockerfile(self):
+		#open dockerfile, write neccessary dependencies
+		dockerfile_loc = self.container_dir + '/Dockerfile'
+		with open(dockerfile_loc, 'w') as dfile:
 			curr_version = str(self.version) + '\n'
 			dfile.write('FROM python:{}'.format(curr_version))
 
-			# add file that the image executes when it builds
-			dfile.write('ADD {} /\n'.format(run_path))
+			# add files that the image uses when it builds
+			for path in self.local_paths:
+				dfile.write('ADD {} /\n'.format(path))
 
 			#TODO, add require version for pip install
-			for imp in import_releases:
+			for imp in self.imports_and_releases:
 				dfile.write('RUN pip install {}\n'.format(imp[0]))
-			dfile.write('CMD [ "python3", "./{}" ]'.format(run_path))
 
-		dir_name = self.project_name + '_auto_drized'
-		pwd = subprocess.check_output(['pwd']).decode("utf-8")
-		dfile_dir = pwd + '/{}'.format(dir_name)
-		subprocess.run(['mkdir', dir_name])
-		subprocess.run(['mv', dockerfile, dir_name])
+			# add file that is actually executed when image builds
+			dfile.write('CMD [ "python3", ".{}" ]'.format(self.run_path))
+
+	def __build_container(self):
+		subprocess.run(['docker', 'build', '-t', self.proj_name, '.'])
 
 	### PUBLIC METHODS ###
 
 	### Create Image 
-	def generate_container(self, run_path):
+	def generate_container(self):
 		imports = self.__get_all_imports()
-		imports_release_info = self.__get_versions_imports(imports)
-		self.__init_dockerfile(imports_release_info, run_path)
+		self.__set_versions_imports(imports)
+		self.__init_dockerfile()
+		#self.__build_container()
 
 ### TEST ###
 
 """ Test command:
-python3 dockerize.py test0 /Users/michaelusa/Documents/Development/Trinitum py36 
+python3 dockerize.py test0 /Users/michaelusa/Documents/Development/Trinitum py36 test_alt
 """
 if __name__ == '__main__':
-	auto_dockerize = AutoDockerize(*sys.argv[1:4])
-	action = sys.argv[-1]
-
-	"""
-	if action == 'target':
-		pass
-	else:
-		pass
-	"""
-
-	auto_dockerize.generate_container(sys.argv[-1])
+	auto_dockerize = AutoDockerize(*sys.argv[1:])
+	auto_dockerize.generate_container()
+	#auto_dockerize.view_member_vars()
