@@ -47,6 +47,8 @@ class AutoDockerize:
 
 	### SETUP ###
 
+### SETUP ###
+
 	def __setup_container_dir(self, targ_dir):
 		# create container directory & copy target directory
 		self.container_dir = self.project_name + '_autodrized'
@@ -64,8 +66,8 @@ class AutoDockerize:
 
 	""" Get all filepaths of target dir + set of all names of local modules.
 	Also, get the path of the module that we want to run in our Dockerfile
-	""" 
-	def __set_fpaths_localmods(self, run_mod_name):
+	"""
+	def __set_fpaths_localmods(self, exec_file_name):
 		container_path = self.container_dir + '/' + self.dir_name
 		ext = container_path + '/**/*.{}'.format(self.extension)
 		self.filepaths = glob.glob(ext, recursive=True)
@@ -80,58 +82,62 @@ class AutoDockerize:
 			module_name = mod.split('.')[0]
 			local_modules.append(module_name)
 
-			if module_name == run_mod_name:
+			if module_name == exec_file_name:
 				self.run_path = path
 
 		self.local_modules = set(local_modules)
 
 	###  PRIVATE METHODS ###
 
-	""" Extract all names of non-local imports """ 
+	""" Extract all names of non-local imports """
 	def __get_all_imports(self):
 		all_imports = []
 		for path in self.filepaths:
 			lines = [line.strip('\n') for line in open(path, 'r')]
-			for line in lines: 
+			for line in lines:
 				split = line.strip('\t').split(' ')
 				if len(split) < 2:
 					continue
 				if (split[0] == 'import' or split[0] == 'from'):
-					all_imports.append(split[1]) 
+					all_imports.append(split[1])
 
 		all_imports = set([elem.strip('.') for elem in all_imports])
 		return list(all_imports - self.version_stdlib - self.local_modules)
 
 	""" Get version #'s for all non-local imports """
 	def __set_versions_imports(self, all_imports):
-		def get_wrapper(import_name):
-			url = 'https://pypi.python.org/pypi/{}/json'.format(import_name)
-			return (import_name, requests.get(url).json())
+		all_pip_dependencies = subprocess.check_output(['pip','freeze'])
+		all_pip_dependencies = all_pip_dependencies.decode('utf-8').split('\n')[:-1]
 
-		pool = Pool(cpu_count())
-		all_release_info = pool.map(get_wrapper, all_imports)
-		pool.close()
-		pool.join()
+		releases = []
+		for dep in all_pip_dependencies:
+			package, version = dep.split('==')
+			if package in all_imports:
+				releases.append((package, version))
 
-		latest_releases = []
-		for r_info in all_release_info:
-			import_name, info_dict = r_info
-			latest_release = list(info_dict['releases'].keys())[-1]
-			latest_releases.append((import_name, latest_release))
+		self.imports_and_releases = releases
 
-		self.imports_and_releases = latest_releases
+	def __add_duct_env(self, dfile, user_meta):
+		user, proj, uuid = user_meta
+		dfile.write('ENV USERNAME {}'.format(user))
+		dfile.write('ENV PROJNAME {}'.format(proj))
+		dfile.write('ENV UUID {}'.format(uuid))
 
 	### populate Dockerfile.txt ###
-	def __init_dockerfile(self):
+	def __populate_dockerfile(self, user_meta=None):
 		#open dockerfile, write neccessary dependencies
 		dockerfile_loc = self.container_dir + '/Dockerfile'
 		with open(dockerfile_loc, 'w') as dfile:
-			curr_version = str(self.version) + '\n'
-			dfile.write('FROM python:{}'.format(curr_version))
+			curr_version = str(self.version)
+			dfile.write('FROM python:{}\n'.format(curr_version))
 
 			# add files that the image uses when it builds
 			for path in self.local_paths:
 				dfile.write('ADD {} /\n'.format(path))
+
+			# back 
+			if user_meta is not None:
+				self.__add_duct_env(dfile, user_meta)
 
 			#TODO, add require version for pip install
 			for imp in self.imports_and_releases:
@@ -140,24 +146,31 @@ class AutoDockerize:
 			# add file that is actually executed when image builds
 			dfile.write('CMD [ "python3", ".{}" ]'.format(self.run_path))
 
-	def __build_container(self):
-		subprocess.run(['docker', 'build', '-t', self.proj_name, '.'])
-
 	### PUBLIC METHODS ###
 
-	### Create Image 
-	def generate_container(self):
+	### Create Image
+	def generate_dockerfile(self, user_meta=None):
 		imports = self.__get_all_imports()
 		self.__set_versions_imports(imports)
-		self.__init_dockerfile()
-		#self.__build_container()
+
+		if user_meta is not None:
+			self.__populate_dockerfile(*user_meta)
+		else:
+			self.__populate_dockerfile()
+
+	def generate_compose_yaml(self):
+		pass
+
+	def build_container(self):
+		print(self.project_name)
+		subprocess.run(['docker', 'build', '-t', self.project_name, '.'])
+
 
 ### TEST ###
 
-""" Test command:
-python3 dockerize.py test0 /Users/michaelusa/Documents/Development/Trinitum py36 test_alt
-"""
+### test command: python3 dockerize.py test0 /Users/michaelusa/Documents/Development/Trinitum py36 test_alt
+### args: project_name, project_path, python_version, exec_filename (file that's executed when container is run)
 if __name__ == '__main__':
 	auto_dockerize = AutoDockerize(*sys.argv[1:])
-	auto_dockerize.generate_container()
-	#auto_dockerize.view_member_vars()
+	auto_dockerize.generate_dockerfile()
+	#auto_dockerize.build_container()
